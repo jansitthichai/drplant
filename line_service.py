@@ -48,8 +48,16 @@ def create_flex_message(analysis_text):
             
             if len(parts) >= 3:
                 treatment = parts[2].strip()
-            if len(parts) >= 4:
-                phaya = parts[3].strip().replace('🎵 ผญาพาเพลิน:', '').replace('🎵 เกร็ดความรู้:', '').strip()
+            phaya_raw = parts[3].strip()
+            phaya_label = "🎵 ผญาพาเพลิน"
+            if "ผญาพาเพลิน .." in phaya_raw:
+                phaya_label = "🎵 ผญาพาเพลิน .."
+                phaya = phaya_raw.replace('🎵 ผญาพาเพลิน ..:', '').strip()
+            elif "ผญาพาเพลิน ." in phaya_raw:
+                phaya_label = "🎵 ผญาพาเพลิน ."
+                phaya = phaya_raw.replace('🎵 ผญาพาเพลิน .:', '').strip()
+            else:
+                phaya = phaya_raw.replace('🎵 ผญาพาเพลิน:', '').replace('🎵 เกร็ดความรู้:', '').strip()
                 
         except Exception as e:
             print(f"Parsing error: {e}")
@@ -135,7 +143,7 @@ def create_flex_message(analysis_text):
             "contents": [
                 {
                     "type": "text",
-                    "text": "🎵 ผญาพาเพลิน",
+                    "text": phaya_label,
                     "weight": "bold",
                     "size": "xs",
                     "color": "#888888"

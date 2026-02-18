@@ -5,7 +5,7 @@ import requests
 import json
 from io import BytesIO
 
-from flask import Flask, request, abort
+from flask import Flask, request, abort, render_template
 from dotenv import load_dotenv
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -18,7 +18,7 @@ from line_service import create_flex_message
 
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='.')
 
 # LINE API Setup
 APP_PORT = os.getenv('PORT', default=5000)
@@ -37,7 +37,11 @@ def root():
     if request.method == 'POST':
         app.logger.warning("Webhook received at '/'! You forgot to add '/callback' to your Webhook URL in line developers console.")
         return "Error: Please set Webhook URL to end with /callback", 400
-    return "Isan Plant Doctor Bot is running! Don't forget to append /callback to your webhook URL."
+    return render_template('index.html')
+
+@app.route("/manual.html")
+def manual():
+    return render_template('manual.html')
 
 
 @app.route("/callback", methods=['POST'])
