@@ -1,4 +1,4 @@
 @echo off
 echo Starting Plant Doctor Server...
-python app.py
+.\venv\Scripts\python.exe app.py
 pause
