@@ -2,10 +2,61 @@ import os
 from google import genai
 from google.genai import types
 from PIL import Image
+from google.cloud import vision
+from google.oauth2 import service_account
+import io
+import json
+
+def get_vision_web_entities(image_data):
+    """
+    Uses Google Cloud Vision API to detect web entities (like Google Lens).
+    Returns a string of top entity descriptions.
+    """
+    try:
+        # Check if credentials are set (file path or JSON string)
+        json_credentials = os.getenv('GOOGLE_CREDENTIALS_JSON')
+        client = None
+        
+        if json_credentials:
+            try:
+                # Load from JSON string (e.g., Render Environment Variable)
+                creds_dict = json.loads(json_credentials)
+                credentials = service_account.Credentials.from_service_account_info(creds_dict)
+                client = vision.ImageAnnotatorClient(credentials=credentials)
+            except Exception as e:
+                print(f"Error loading credentials from JSON string: {e}")
+                
+        if not client:
+            if os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
+                # Load from file (e.g., Local development)
+                client = vision.ImageAnnotatorClient()
+            else:
+                 return "No Google Cloud Vision credentials found."
+        
+        # Read the image content from BytesIO
+        content = image_data.getvalue()
+        image = vision.Image(content=content)
+
+        # Perform Web Detection
+        response = client.web_detection(image=image)
+        annotations = response.web_detection
+
+        if annotations.web_entities:
+            # Get the top 3 entity descriptions
+            entities = [ent.description for ent in
+                        sorted(annotations.web_entities, key=lambda x: getattr(x, 'score', 0.0), reverse=True)[:3]
+                        if getattr(ent, 'description', None)]
+            if entities:
+                return ", ".join(entities)
+        return "ไม่พบข้อมูลจากระบบสืบค้นภาพสากล"
+    except Exception as e:
+        print(f"Vision API Error: {e}")
+        return f"เกิดข้อผิดพลาดในการค้นหาภาพ: {e}"
 
 def analyze_image(image_file):
     """
-    Analyzes an image using Google Gemini 2.0 Flash (via google.genai SDK).
+    Analyzes an image using Google Gemini 2.0 Flash (via google.genai SDK) 
+    with Google Cloud Vision API for context.
     
     Args:
         image_file (BytesIO): The image data in memory.
@@ -21,14 +72,20 @@ def analyze_image(image_file):
     # Instantiate the client
     client = genai.Client(api_key=api_key)
     
-    # Load image from BytesIO
+    # 1. Get Context from Vision API
+    vision_entities = get_vision_web_entities(image_file)
+    print(f"Vision API Entities: {vision_entities}")
+    
+    # Load image from BytesIO for Gemini
     try:
+        # Seek to start since Vision API might have read it
+        image_file.seek(0)
         image_data = Image.open(image_file)
     except Exception as e:
         return f"Error opening image: {e}"
 
     # System Prompt
-    system_prompt = """
+    system_prompt = f"""
     คุณคือ "หมอพืชอีสาน" ปราชญ์ชาวบ้านและผู้เชี่ยวชาญโรคพืชและเห็ดรา
     บุคลิก: ใจดี, พูดภาษาอีสานเป็นหลัก (เว้าอีสานม่วนๆ เป็นกันเอง), มีความรู้ลึกซึ้ง
     
@@ -37,7 +94,9 @@ def analyze_image(image_file):
     - ให้เริ่มตอบด้วย "ชื่อพืช" หรือ "ชื่อโรค" เป็นบรรทัดแรกทันที
     - **ห้าม** ใช้คำอุทานที่ดูเหมือนบ่น เช่น "โอย", "เอ้อ", "โอ้ย", "ฮ่วย", "ป้าด" เด็ดขาด ให้ใช้ภาษาอีสานที่สุภาพ นุ่มนวล และน่าฟัง
 
-    หน้าที่: วิเคราะห์รูปภาพที่ได้รับ
+    ข้อมูลตัวช่วย: ระบบสืบค้นภาพสากลแนะนำว่ารูปนี้อาจจะเป็นต้น: "{vision_entities}"
+    หน้าที่: วิเคราะห์รูปภาพที่ได้รับ โดยพิจารณา "ข้อมูลตัวช่วย" ด้านบนประกอบ หากมีความเป็นไปได้สูงให้ใช้ชื่อนั้นต่อยอด แต่ถ้าข้อมูลขัดแย้งกับภาพให้ยึดจากภาพเป็นหลัก
+    
     1. ถ้าเป็นพืช/ผัก: 
        - บอกชื่อ (ชื่อไทย/ชื่อท้องถิ่น) **เป็นหัวเรื่องบรรทัดแรก**
        - **การแยกแยะพืชที่คล้ายกัน:** สังเกตลักษณะเฉพาะทางพฤกษศาสตร์อย่างละเอียด (เช่น ลักษณะใบ ดอก ลำต้น มีขนหรือไม่) เพื่อป้องกันความสับสน โดยเฉพาะพืชที่หน้าตาคล้ายกัน (เช่น น้ำนมราชสีห์ กับ ลูกใต้ใบ)
