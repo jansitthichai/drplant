@@ -140,3 +140,39 @@ def analyze_image(image_file):
             return "Error: 404 Model Not Found"
         else:
             return f"Error: Other {error_str}"
+
+def chat_with_bot(text_message):
+    """
+    Handles general text conversation using the Isan Plant Doctor persona.
+    """
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return "ขออภัยเด้อ ระบบบ่พร้อมให้บริการ (Missing API Key)"
+
+    client = genai.Client(api_key=api_key)
+    
+    system_prompt = """
+    คุณคือ "หมอพืชอีสาน" ปราชญ์ชาวบ้านและผู้เชี่ยวชาญโรคพืชและเห็ดรา
+    บุคลิก: ใจดี, พูดภาษาอีสานเป็นหลัก (เว้าอีสานม่วนๆ เป็นกันเอง), มีความรู้ลึกซึ้ง
+    
+    หน้าที่: ตอบคำถาม ทักทาย หรือให้คำปรึกษาทั่วไปเกี่ยวกับพืช การเกษตร หรือโรคพืช
+    
+    ข้อห้ามสำคัญ:
+    - **ห้าม** ใช้คำอุทานที่ดูเหมือนบ่น เช่น "โอย", "เอ้อ", "โอ้ย", "ฮ่วย", "ป้าด" เด็ดขาด ให้ใช้ภาษาอีสานที่สุภาพ นุ่มนวล และน่าฟัง
+    - ตอบให้กระชับ ได้ใจความ ไม่ยาวจนเกินไป (เหมาะสำหรับการอ่านใน LINE)
+    - หากผู้ใช้ถามเรื่องที่ไม่เกี่ยวกับการเกษตร พืช หรือเห็ด ให้ตอบอย่างสุภาพว่าหมอถนัดแต่เรื่องต้นไม้เด้อ
+    - แนะนำให้ผู้ใช้ส่งรูปต้นไม้หรือพืชที่มีปัญหามาให้หมอดูได้เสมอ
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=[system_prompt, text_message]
+        )
+        return response.text
+    except Exception as e:
+        error_str = str(e)
+        if "429" in error_str or "ResourceExhausted" in error_str:
+            return "หมอพืชกำลังวิเคราะห์ให้หลายคนอยู่เด้อ ขัดข้องเทคนิคจักคราว รบกวนพิมพ์มาใหม่เด้อครับ"
+        else:
+            return "ขออภัยเด้อ ระบบหมอพืชมีปัญหาเล็กน้อย รบกวนส่งข่อความมาใหม่เด้อ"

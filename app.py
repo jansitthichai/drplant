@@ -12,7 +12,7 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageMessage
 
 # Custom services
-from gemini_service import analyze_image as analyze_image_gemini
+from gemini_service import analyze_image as analyze_image_gemini, chat_with_bot
 from openai_service import analyze_image_openai
 from line_service import create_flex_message
 
@@ -141,10 +141,23 @@ def handle_image_message(event):
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text="ส่งรูปพืชที่เป็นโรคมาให้หมอเบิ่งแนเด้อ หมอสิซอยวิเคราะห์ให้ (Please send an image of the plant)")
-    )
+    user_message = event.message.text
+    
+    try:
+        # Show loading animation for chat as well
+        show_loading_animation(event.source.user_id)
+        
+        reply_text = chat_with_bot(user_message)
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=reply_text)
+        )
+    except Exception as e:
+        print(f"Error in chat_with_bot: {e}")
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="ขอโทษเด้อ หมอพืชกำลังงง รบกวนส่งข้อความมาใหม่แหน่เด้อ (Error processing text)")
+        )
 
 if __name__ == "__main__":
     app.run(port=int(APP_PORT))
