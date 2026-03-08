@@ -64,14 +64,18 @@ def create_flex_message(analysis_text):
             pass
 
     # Construct Flex Bubble
-    # Split title into Thai and English if possible
+    # Split title into main name and scientific name (or English name) if possible
     title_thai = title
     title_eng = ""
     
-    if "(" in title:
+    if "\n" in title:
+        parts_title = title.split("\n", 1)
+        title_thai = parts_title[0].strip().replace('_', '').replace('*', '')
+        title_eng = parts_title[1].strip().replace('_', '').replace('*', '')
+    elif "(" in title:
         parts_title = title.split("(", 1)
-        title_thai = parts_title[0].strip()
-        title_eng = "(" + parts_title[1].strip()
+        title_thai = parts_title[0].strip().replace('_', '').replace('*', '')
+        title_eng = "(" + parts_title[1].strip().replace('_', '').replace('*', '')
 
     contents = [
         {
@@ -89,7 +93,7 @@ def create_flex_message(analysis_text):
             "type": "text",
             "text": title_eng,
             "weight": "regular",
-            "size": "md",
+            "size": "sm",
             "color": header_color,
             "wrap": True
         })
