@@ -15,8 +15,10 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageMess
 from gemini_service import analyze_image as analyze_image_gemini, chat_with_bot
 from openai_service import analyze_image_openai
 from line_service import create_flex_message
+import database
 
 load_dotenv()
+database.init_db()
 
 app = Flask(__name__, template_folder='.')
 
@@ -95,6 +97,7 @@ def show_loading_animation(user_id):
 
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image_message(event):
+    user_id = event.source.user_id
     message_id = event.message.id
     message_content = line_bot_api.get_message_content(message_id)
     
@@ -105,7 +108,7 @@ def handle_image_message(event):
     analysis_result = ""
     try:
         # Show loading animation
-        show_loading_animation(event.source.user_id)
+        show_loading_animation(user_id)
         
         # Try Gemini First
         analysis_result = analyze_image_gemini(image_data)
@@ -115,6 +118,9 @@ def handle_image_message(event):
             print(f"Gemini Error ({analysis_result}). Switching to OpenAI...")
             analysis_result = analyze_image_openai(image_data)
         
+        # Log basic info to DB (Initial prediction)
+        database.log_feedback(user_id, message_id, analysis_result, status='pending')
+
         # Create Flex Message
         flex_message = create_flex_message(analysis_result)
         
@@ -123,29 +129,35 @@ def handle_image_message(event):
             flex_message
         )
     except Exception as e:
-        print(f"Error processing image with Gemini: {e}")
+        print(f"Error processing image: {e}")
         try:
-             # Fallback to OpenAI if Gemini throws an unhandled exception
-            print("Exception in Gemini. Switching to OpenAI...")
             analysis_result = analyze_image_openai(image_data)
-            
+            database.log_feedback(user_id, message_id, analysis_result, status='pending')
             flex_message = create_flex_message(analysis_result)
             line_bot_api.reply_message(event.reply_token, flex_message)
-            
         except Exception as e_openai:
-            print(f"Error processing image with OpenAI: {e_openai}")
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="ขอโทษเด้อ หมอพืชกำลังงง รบกวนส่งรูปมาใหม่แหน่เด้อ (Error processing image)")
+                TextSendMessage(text="ขอโทษเด้อ หมอพืชกำลังงง รบกวนส่งรูปมาใหม่แหน่เด้อ")
             )
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
+    user_id = event.source.user_id
     user_message = event.message.text
+    
+    # Correction detection (Natural Feedback)
+    # If user says something that sounds like a correction, we log it.
+    correction_keywords = ["ไม่ใช่", "บ่แม่น", "เข้าใจผิด", "คือต้น", "มันคือ", "ชื่อจริงคือ", "มันแม่น"]
+    is_correction = any(keyword in user_message for keyword in correction_keywords)
+    
+    if is_correction:
+        print(f"Natural Correction detected from {user_id}: {user_message}")
+        database.update_feedback(user_id, user_message)
     
     try:
         # Show loading animation for chat as well
-        show_loading_animation(event.source.user_id)
+        show_loading_animation(user_id)
         
         reply_text = chat_with_bot(user_message)
         line_bot_api.reply_message(
@@ -156,7 +168,7 @@ def handle_text_message(event):
         print(f"Error in chat_with_bot: {e}")
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="ขอโทษเด้อ หมอพืชกำลังงง รบกวนส่งข้อความมาใหม่แหน่เด้อ (Error processing text)")
+            TextSendMessage(text="ขอโทษเด้อ หมอพืชกำลังงง รบกวนส่งข้อความมาใหม่แหน่เด้อ")
         )
 
 if __name__ == "__main__":
