@@ -163,56 +163,6 @@ def create_flex_message(analysis_text):
             ]
         })
 
-    # Feedback Buttons
-    footer_contents = [
-        {
-            "type": "separator",
-            "margin": "md"
-        },
-        {
-            "type": "text",
-            "text": "ข้อมูลนี้แม่นบ่ครับ? (Is this accurate?)",
-            "size": "xs",
-            "color": "#aaaaaa",
-            "margin": "md",
-            "align": "center"
-        },
-        {
-            "type": "box",
-            "layout": "horizontal",
-            "margin": "md",
-            "spacing": "sm",
-            "contents": [
-                {
-                    "type": "button",
-                    "action": {
-                        "type": "postback",
-                        "label": "👍 แม่นแล้ว",
-                        "data": "action=feedback&value=correct",
-                        "displayText": "👍 ข้อมูลแม่นยำดีมากครับ"
-                    },
-                    "style": "secondary",
-                    "height": "sm",
-                    "color": "#E8F5E9"
-                },
-                {
-                    "type": "button",
-                    "action": {
-                        "type": "postback",
-                        "label": "❌ บ่แม่น",
-                        "data": "action=feedback&value=incorrect",
-                        "displayText": "❌ ข้อมูลบ่ถืกเด้อหมอ"
-                    },
-                    "style": "secondary",
-                    "height": "sm",
-                    "color": "#FFEBEE"
-                }
-            ]
-        }
-    ]
-    
-    contents.extend(footer_contents)
-
     flex_content = {
         "type": "bubble",
         "body": {
