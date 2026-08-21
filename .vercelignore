@@ -1,0 +1,7 @@
+.vercel_env_tmp/
+.env
+*.db
+ngrok.exe
+__pycache__/
+.venv/
+venv/
