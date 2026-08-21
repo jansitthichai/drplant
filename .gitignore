@@ -17,3 +17,4 @@ ngrok.exe
 *-credentials.json
 service-account*.json
 GOOGLE_CREDENTIALS*.json
+.vercel_env_tmp/
