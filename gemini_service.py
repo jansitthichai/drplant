@@ -31,7 +31,8 @@ def get_vision_web_entities(image_data):
                 # Load from file (e.g., Local development)
                 client = vision.ImageAnnotatorClient()
             else:
-                 return "No Google Cloud Vision credentials found."
+                 # Vision API is optional
+                 return None
         
         # Read the image content from BytesIO
         content = image_data.getvalue()
@@ -84,17 +85,24 @@ def analyze_image(image_file):
     except Exception as e:
         return f"Error opening image: {e}"
 
-    # System Prompt
-    system_prompt = f"""
+    # Persona and System Instructions
+    persona = """
     คุณคือ "หมอพืชอีสาน" ปราชญ์ชาวบ้านและผู้เชี่ยวชาญโรคพืชและเห็ดรา
     บุคลิก: ใจดี, พูดภาษาอีสานเป็นหลัก (เว้าอีสานม่วนๆ เป็นกันเอง), มีความรู้ลึกซึ้ง
+    """
+
+    vision_context = ""
+    if vision_entities:
+        vision_context = f'\n    ข้อมูลตัวช่วย: ระบบสืบค้นภาพสากลแนะนำว่ารูปนี้อาจจะเป็นต้น: "{vision_entities}"\n'
+
+    system_prompt = f"""
+    {persona}
     
     ข้อห้ามสำคัญ:
     - ไม่ต้องกล่าวทักทาย "สวัสดีครับ" หรือแนะนำตัว "บ่าวหมอพืช..." ให้เสียเวลา
     - ให้เริ่มตอบด้วย "ชื่อพืช" หรือ "ชื่อโรค" เป็นบรรทัดแรกทันที
     - **ห้าม** ใช้คำอุทานที่ดูเหมือนบ่น เช่น "โอย", "เอ้อ", "โอ้ย", "ฮ่วย", "ป้าด" เด็ดขาด ให้ใช้ภาษาอีสานที่สุภาพ นุ่มนวล และน่าฟัง
-
-    ข้อมูลตัวช่วย: ระบบสืบค้นภาพสากลแนะนำว่ารูปนี้อาจจะเป็นต้น: "{vision_entities}"
+    {vision_context}
     
     กระบวนการวิเคราะห์เชิงลึก (Chain-of-Thought):
     ก่อนจะระบุชื่อ ให้คุณพิจารณาลักษณะทางพฤกษศาสตร์อย่างละเอียดตามลำดับ:
@@ -164,33 +172,62 @@ def analyze_image(image_file):
         else:
             return f"Error: Other {error_str}"
 
-def chat_with_bot(text_message):
+def chat_with_bot(text_message, history=None, last_prediction=None):
     """
     Handles general text conversation using the Isan Plant Doctor persona.
+    Uses recent chat history and the latest image analysis when available.
     """
     api_key = os.getenv('GEMINI_API_KEY')
     if not api_key:
         return "ขออภัยเด้อ ระบบบ่พร้อมให้บริการ (Missing API Key)"
 
     client = genai.Client(api_key=api_key)
-    
-    system_prompt = """
+
+    context_parts = []
+    if last_prediction:
+        # Keep context compact for the model
+        prediction_snippet = last_prediction.strip()
+        if len(prediction_snippet) > 1500:
+            prediction_snippet = prediction_snippet[:1500] + "…"
+        context_parts.append(
+            "ผลการวิเคราะห์รูปล่าสุดของผู้ใช้นี้ (ใช้อ้างอิงเมื่อผู้ใช้ถามต่อ):\n"
+            f"{prediction_snippet}"
+        )
+
+    if history:
+        lines = []
+        for role, content in history:
+            label = "ผู้ใช้" if role == "user" else "หมอพืช"
+            lines.append(f"{label}: {content}")
+        context_parts.append("ประวัติการสนทนาล่าสุด:\n" + "\n".join(lines))
+
+    context_block = ""
+    if context_parts:
+        context_block = "\n\n".join(context_parts) + "\n\n"
+
+    system_prompt = f"""
     คุณคือ "หมอพืชอีสาน" ปราชญ์ชาวบ้านและผู้เชี่ยวชาญโรคพืชและเห็ดรา
     บุคลิก: ใจดี, พูดภาษาอีสานเป็นหลัก (เว้าอีสานม่วนๆ เป็นกันเอง), มีความรู้ลึกซึ้ง
     
     หน้าที่: ตอบคำถาม ทักทาย หรือให้คำปรึกษาทั่วไปเกี่ยวกับพืช การเกษตร หรือโรคพืช
+    - หากมี "ผลการวิเคราะห์รูปล่าสุด" และผู้ใช้ถามต่อเนื่อง ให้ตอบอิงผลนั้นก่อน
+    - หากมีประวัติสนทนา ให้ตอบต่อเนื่องตามบริบท ไม่ถามซ้ำสิ่งที่รู้แล้ว
+    - ถ้าผู้ใช้บอกลักษณะพืช/อาการด้วยข้อความ ให้ช่วยวิเคราะห์และถามจุดที่ยังไม่ชัดได้
     
     ข้อห้ามสำคัญ:
     - **ห้าม** ใช้คำอุทานที่ดูเหมือนบ่น เช่น "โอย", "เอ้อ", "โอ้ย", "ฮ่วย", "ป้าด" เด็ดขาด ให้ใช้ภาษาอีสานที่สุภาพ นุ่มนวล และน่าฟัง
     - ตอบให้กระชับ ได้ใจความ ไม่ยาวจนเกินไป (เหมาะสำหรับการอ่านใน LINE)
     - หากผู้ใช้ถามเรื่องที่ไม่เกี่ยวกับการเกษตร พืช หรือเห็ด ให้ตอบอย่างสุภาพว่าหมอถนัดแต่เรื่องต้นไม้เด้อ
-    - แนะนำให้ผู้ใช้ส่งรูปต้นไม้หรือพืชที่มีปัญหามาให้หมอดูได้เสมอ
+    - แนะนำให้ส่งรูปเมื่อจำเป็นต่อการวินิจฉัย ไม่ต้องชวนส่งรูปทุกข้อความ
+    
+    {context_block}ข้อความล่าสุดของผู้ใช้:
+    {text_message}
     """
     
     try:
         response = client.models.generate_content(
             model='gemini-2.0-flash',
-            contents=[system_prompt, text_message]
+            contents=[system_prompt]
         )
         return response.text
     except Exception as e:

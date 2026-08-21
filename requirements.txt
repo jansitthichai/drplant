@@ -1,8 +1,8 @@
-flask
-line-bot-sdk
-google-genai
-python-dotenv
-Pillow
-openai
-gunicorn
-google-cloud-vision
+flask==3.0.3
+line-bot-sdk==3.5.0
+google-genai==0.3.0
+python-dotenv==1.0.1
+Pillow==10.3.0
+openai==1.30.1
+gunicorn==22.0.0
+google-cloud-vision==3.7.2
