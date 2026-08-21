@@ -214,9 +214,13 @@ if handler:
             )
         except Exception as e:
             print(f"Error in chat_with_bot: {e}")
+            import traceback
+            traceback.print_exc()
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="ขอโทษเด้อ หมอพืชกำลังงง รบกวนส่งข้อความมาใหม่แหน่เด้อ")
+                TextSendMessage(
+                    text=f"ขอโทษเด้อ หมอพืชกำลังงง ({type(e).__name__}) รบกวนส่งข้อความมาใหม่แหน่เด้อ"
+                )
             )
 
 if __name__ == "__main__":

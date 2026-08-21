@@ -1,4 +1,5 @@
 import os
+import traceback
 from google import genai
 from google.genai import types
 from PIL import Image
@@ -6,6 +7,84 @@ from google.cloud import vision
 from google.oauth2 import service_account
 import io
 import json
+
+# gemini-2.0-flash ถูกเลิกแล้ว — ค่าเริ่มต้นใช้ 2.5-flash (override ได้ด้วย GEMINI_MODEL)
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+
+
+def get_gemini_model():
+    return os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
+
+
+def extract_gemini_text(response):
+    """อ่านข้อความจาก response อย่างปลอดภัย (กันกรณีถูก block / ไม่มี text)."""
+    try:
+        text = response.text
+        if text and text.strip():
+            return text
+    except Exception as e:
+        print(f"Gemini response.text error: {e}")
+
+    try:
+        candidates = getattr(response, "candidates", None) or []
+        if not candidates:
+            return None
+        parts = getattr(candidates[0].content, "parts", None) or []
+        chunks = [p.text for p in parts if getattr(p, "text", None)]
+        if chunks:
+            return "".join(chunks)
+    except Exception as e:
+        print(f"Gemini candidates parse error: {e}")
+    return None
+
+
+def format_gemini_user_error(error, for_chat=True):
+    """
+    แปลง error ของ Gemini เป็นข้อความภาษาไทยที่บอกสาเหตุชัด
+    และพิมพ์รายละเอียดเต็มลง log สำหรับ Render.
+    """
+    error_str = str(error)
+    print(f"Gemini API Error: {error_str}")
+    traceback.print_exc()
+
+    lower = error_str.lower()
+
+    if "429" in error_str or "resourceexhausted" in lower or "quota" in lower:
+        msg = (
+            "หมอพืชกำลังวิเคราะห์ให้หลายคนอยู่เด้อ (โควต้า API เต็มชั่วคราว) "
+            "รบกวนพิมพ์มาใหม่จักคราวเด้อครับ"
+        )
+    elif "404" in error_str or "not_found" in lower or "no longer available" in lower:
+        msg = (
+            "ขออภัยเด้อ โมเดล AI ที่ระบบใช้อยู่ถูกยกเลิกหรือหาไม่เจอ "
+            f"(model={get_gemini_model()}) รบกวนแจ้งผู้ดูแลอัปเดตชื่อโมเดลเด้อ"
+        )
+    elif "401" in error_str or "403" in error_str or "permission" in lower or "api key" in lower or "invalid" in lower and "key" in lower:
+        msg = (
+            "ขออภัยเด้อ กุญแจ Gemini API ใช้บ่ได้หรือหมดสิทธิ์ "
+            "รบกวนตรวจ GEMINI_API_KEY ในเซิร์ฟเวอร์เด้อ"
+        )
+    elif "safety" in lower or "blocked" in lower or "prohibit" in lower:
+        msg = "ขออภัยเด้อ ระบบกันเนื้อหาไว้ชั่วคราว รบกวนส่งข้อความหรือรูปใหม่เด้อ"
+    elif "timeout" in lower or "timed out" in lower or "deadline" in lower:
+        msg = "ขออภัยเด้อ การเชื่อมต่อ AI ช้าเกินกำหนด รบกวนลองใหม่อีกทีเด้อ"
+    else:
+        # สรุปสั้นๆ ให้ผู้ใช้เห็นสาเหตุ โดยไม่ยาวเกินใน LINE
+        short = error_str.replace("\n", " ").strip()
+        if len(short) > 160:
+            short = short[:160] + "…"
+        msg = f"ขออภัยเด้อ ระบบหมอพืชมีปัญหาเล็กน้อย ({short}) รบกวนส่งใหม่อีกทีเด้อ"
+
+    if not for_chat:
+        # analyze_image ใช้ prefix Error เพื่อให้ app.py สลับไป OpenAI ได้
+        if "429" in error_str or "resourceexhausted" in lower:
+            return "Error: 429 Resource Exhausted"
+        if "404" in error_str or "not_found" in lower or "no longer available" in lower:
+            return "Error: 404 Model Not Found"
+        return f"Error: Other {error_str}"
+
+    return msg
+
 
 def get_vision_web_entities(image_data):
     """
@@ -56,7 +135,7 @@ def get_vision_web_entities(image_data):
 
 def analyze_image(image_file):
     """
-    Analyzes an image using Google Gemini 2.0 Flash (via google.genai SDK) 
+    Analyzes an image using Google Gemini (via google.genai SDK)
     with Google Cloud Vision API for context.
     
     Args:
@@ -72,6 +151,7 @@ def analyze_image(image_file):
 
     # Instantiate the client
     client = genai.Client(api_key=api_key)
+    model_name = get_gemini_model()
     
     # 1. Get Context from Vision API
     vision_entities = get_vision_web_entities(image_file)
@@ -154,23 +234,20 @@ def analyze_image(image_file):
     """
 
     try:
-        # Generate content using the new SDK with temperature=0.0 for consistent results
+        print(f"analyze_image using model={model_name}")
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model=model_name,
             contents=[system_prompt, image_data],
             config=types.GenerateContentConfig(
                 temperature=0.0,
             )
         )
-        return response.text
+        text = extract_gemini_text(response)
+        if not text:
+            return "Error: Other empty or blocked Gemini response"
+        return text
     except Exception as e:
-        error_str = str(e)
-        if "429" in error_str or "ResourceExhausted" in error_str:
-            return "Error: 429 Resource Exhausted"
-        elif "404" in error_str or "NotFound" in error_str:
-            return "Error: 404 Model Not Found"
-        else:
-            return f"Error: Other {error_str}"
+        return format_gemini_user_error(e, for_chat=False)
 
 def chat_with_bot(text_message, history=None, last_prediction=None):
     """
@@ -179,9 +256,10 @@ def chat_with_bot(text_message, history=None, last_prediction=None):
     """
     api_key = os.getenv('GEMINI_API_KEY')
     if not api_key:
-        return "ขออภัยเด้อ ระบบบ่พร้อมให้บริการ (Missing API Key)"
+        return "ขออภัยเด้อ ระบบบ่พร้อมให้บริการ (ยังไม่มี GEMINI_API_KEY บนเซิร์ฟเวอร์)"
 
     client = genai.Client(api_key=api_key)
+    model_name = get_gemini_model()
 
     context_parts = []
     if last_prediction:
@@ -225,14 +303,17 @@ def chat_with_bot(text_message, history=None, last_prediction=None):
     """
     
     try:
+        print(f"chat_with_bot using model={model_name}")
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model=model_name,
             contents=[system_prompt]
         )
-        return response.text
+        text = extract_gemini_text(response)
+        if not text:
+            return (
+                "ขออภัยเด้อ AI ตอบว่างหรือถูกบล็อกเนื้อหา "
+                "รบกวนพิมพ์ข้อความใหม่หรือส่งรูปมาใหม่เด้อ"
+            )
+        return text
     except Exception as e:
-        error_str = str(e)
-        if "429" in error_str or "ResourceExhausted" in error_str:
-            return "หมอพืชกำลังวิเคราะห์ให้หลายคนอยู่เด้อ ขัดข้องเทคนิคจักคราว รบกวนพิมพ์มาใหม่เด้อครับ"
-        else:
-            return "ขออภัยเด้อ ระบบหมอพืชมีปัญหาเล็กน้อย รบกวนส่งข่อความมาใหม่เด้อ"
+        return format_gemini_user_error(e, for_chat=True)
